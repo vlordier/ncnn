@@ -250,9 +250,122 @@ static int test_prebatched()
     return 0;
 }
 
+static int test_tie_break_stability()
+{
+    const int N = 4;
+    ncnn::Mat mkpts0(2, N);
+    ncnn::Mat mkpts1(2, N);
+    ncnn::Mat mconf(N);
+
+    // Equal confidence for idx0/idx1; expected stable tie by lower index first.
+    for (int i = 0; i < N; i++)
+    {
+        mkpts0.row(i)[0] = (float)(i + 1);
+        mkpts0.row(i)[1] = (float)(10 + i);
+        mkpts1.row(i)[0] = (float)(100 + i);
+        mkpts1.row(i)[1] = (float)(200 + i);
+        mconf[i] = i < 2 ? 0.8f : 0.1f;
+    }
+
+    std::vector<ncnn::Mat> bottoms(3);
+    bottoms[0] = mkpts0;
+    bottoms[1] = mkpts1;
+    bottoms[2] = mconf;
+
+    std::vector<ncnn::Mat> tops;
+    int ret = run_layer(bottoms, tops, 2, 0);
+    if (ret != 0)
+    {
+        fprintf(stderr, "run_layer tie_break_stability failed ret=%d\n", ret);
+        return ret;
+    }
+
+    // idx0 then idx1
+    if (tops[0].channel(0).row(0)[0] != 1.f || tops[0].channel(0).row(1)[0] != 2.f)
+    {
+        fprintf(stderr, "test_tie_break_stability order mismatch\n");
+        return -1;
+    }
+
+    return 0;
+}
+
+static int test_empty_valid_matches()
+{
+    const int N = 3;
+    ncnn::Mat mkpts0(2, N);
+    ncnn::Mat mkpts1(2, N);
+    ncnn::Mat mconf(N);
+    ncnn::Mat mbids(N);
+
+    for (int i = 0; i < N; i++)
+    {
+        mkpts0.row(i)[0] = (float)(10 + i);
+        mkpts0.row(i)[1] = (float)(20 + i);
+        mkpts1.row(i)[0] = (float)(30 + i);
+        mkpts1.row(i)[1] = (float)(40 + i);
+        mconf[i] = -1e9f;
+        mbids[i] = 1.f;
+    }
+
+    std::vector<ncnn::Mat> bottoms(4);
+    bottoms[0] = mkpts0;
+    bottoms[1] = mkpts1;
+    bottoms[2] = mconf;
+    bottoms[3] = mbids;
+
+    std::vector<ncnn::Mat> tops;
+    int ret = run_layer(bottoms, tops, 4, 0);
+    if (ret != 0)
+    {
+        fprintf(stderr, "run_layer empty_valid_matches failed ret=%d\n", ret);
+        return ret;
+    }
+
+    for (int b = 0; b < tops[2].h; b++)
+    {
+        const float* conf = tops[2].row(b);
+        for (int i = 0; i < tops[2].w; i++)
+        {
+            if (conf[i] != -1.f)
+            {
+                fprintf(stderr, "test_empty_valid_matches expected -1 confidence\n");
+                return -1;
+            }
+        }
+    }
+
+    return 0;
+}
+
+static int test_invalid_shape_rejected()
+{
+    ncnn::Mat mkpts0(2, 4);
+    ncnn::Mat mkpts1(2, 4);
+    ncnn::Mat bad_conf(5); // mismatched length
+
+    std::vector<ncnn::Mat> bottoms(3);
+    bottoms[0] = mkpts0;
+    bottoms[1] = mkpts1;
+    bottoms[2] = bad_conf;
+
+    std::vector<ncnn::Mat> tops;
+    int ret = run_layer(bottoms, tops, 2, 0);
+    if (ret == 0)
+    {
+        fprintf(stderr, "test_invalid_shape_rejected expected failure\n");
+        return -1;
+    }
+
+    return 0;
+}
+
 int main()
 {
     return 0
            || test_flat_with_batch_ids()
-           || test_prebatched();
+           || test_prebatched()
+           || test_tie_break_stability()
+           || test_empty_valid_matches()
+           || test_invalid_shape_rejected();
 }
