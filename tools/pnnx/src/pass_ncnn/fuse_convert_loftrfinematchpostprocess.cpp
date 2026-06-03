@@ -21,8 +21,10 @@ static Operator* producer(Operand* r)
 }
 
 static bool collect_branch_inputs(Operand* branch_points, Operand* branch_conf,
-                                  Operand*& mkpts, Operand*& mconf_masked,
-                                  int& topk_k)
+                                  Operand*& mkpts, Operand*& mconf,
+                                  Operand*& m_bids,
+                                  int& topk_k,
+                                  int& batch_value)
 {
     // branch_points := torch.where(valid.unsqueeze(-1), gathered_points, zeros)
     Operator* where_points = producer(branch_points);
@@ -68,7 +70,31 @@ static bool collect_branch_inputs(Operand* branch_points, Operand* branch_conf,
     if (!is_type(where_masked_scores, "torch.where") || where_masked_scores->inputs.size() < 2)
         return false;
 
-    Operand* mconf_masked_candidate = cat_scores->inputs[0];
+    Operand* mconf_candidate = where_masked_scores->inputs[1];
+
+    Operator* eq = producer(where_masked_scores->inputs[0]);
+    if (!is_type(eq, "torch.eq") || eq->inputs.size() < 1)
+        return false;
+
+    Operand* m_bids_candidate = eq->inputs[0];
+
+    if (!eq->has_param("other"))
+        return false;
+
+    const Parameter& other = eq->params.at("other");
+    int bid_val = 0;
+    if (other.type == 2)
+    {
+        bid_val = other.i;
+    }
+    else if (other.type == 3)
+    {
+        bid_val = (int)(other.f + (other.f >= 0.f ? 0.5f : -0.5f));
+    }
+    else
+    {
+        return false;
+    }
 
     // valid mask semantics are produced by prior ops, but may already be lowered
     // from pnnx.Expression into primitive ops by expand_expression.
@@ -76,8 +102,10 @@ static bool collect_branch_inputs(Operand* branch_points, Operand* branch_conf,
         return false;
 
     mkpts = mkpts_candidate;
-    mconf_masked = mconf_masked_candidate;
+    mconf = mconf_candidate;
+    m_bids = m_bids_candidate;
     topk_k = k_val;
+    batch_value = bid_val;
 
     return true;
 }
@@ -137,37 +165,45 @@ void fuse_convert_loftrfinematchpostprocess(Graph& graph)
 
         Operand* mkpts0_a = 0;
         Operand* mconf_a = 0;
+        Operand* m_bids_a = 0;
         int topk_a = 0;
+        int bid_a0 = -1;
 
         Operand* mkpts1_a = 0;
         Operand* mconf_a2 = 0;
+        Operand* m_bids_a2 = 0;
         int topk_a2 = 0;
+        int bid_a1 = -1;
 
         Operand* mkpts0_b = 0;
         Operand* mconf_b = 0;
+        Operand* m_bids_b = 0;
         int topk_b = 0;
+        int bid_b0 = -1;
 
         Operand* mkpts1_b = 0;
         Operand* mconf_b2 = 0;
+        Operand* m_bids_b2 = 0;
         int topk_b2 = 0;
+        int bid_b1 = -1;
 
-        if (!collect_branch_inputs(stack0->inputs[0], stack2->inputs[0], mkpts0_a, mconf_a, topk_a))
+        if (!collect_branch_inputs(stack0->inputs[0], stack2->inputs[0], mkpts0_a, mconf_a, m_bids_a, topk_a, bid_a0))
         {
             if (debug) fprintf(stderr, "[loftr_fuse] branch A0 collect failed\n");
             continue;
         }
-        if (!collect_branch_inputs(stack1->inputs[0], stack2->inputs[0], mkpts1_a, mconf_a2, topk_a2))
+        if (!collect_branch_inputs(stack1->inputs[0], stack2->inputs[0], mkpts1_a, mconf_a2, m_bids_a2, topk_a2, bid_a1))
         {
             if (debug) fprintf(stderr, "[loftr_fuse] branch A1 collect failed\n");
             continue;
         }
 
-        if (!collect_branch_inputs(stack0->inputs[1], stack2->inputs[1], mkpts0_b, mconf_b, topk_b))
+        if (!collect_branch_inputs(stack0->inputs[1], stack2->inputs[1], mkpts0_b, mconf_b, m_bids_b, topk_b, bid_b0))
         {
             if (debug) fprintf(stderr, "[loftr_fuse] branch B0 collect failed\n");
             continue;
         }
-        if (!collect_branch_inputs(stack1->inputs[1], stack2->inputs[1], mkpts1_b, mconf_b2, topk_b2))
+        if (!collect_branch_inputs(stack1->inputs[1], stack2->inputs[1], mkpts1_b, mconf_b2, m_bids_b2, topk_b2, bid_b1))
         {
             if (debug) fprintf(stderr, "[loftr_fuse] branch B1 collect failed\n");
             continue;
@@ -188,9 +224,19 @@ void fuse_convert_loftrfinematchpostprocess(Graph& graph)
             if (debug) fprintf(stderr, "[loftr_fuse] branch B mconf mismatch\n");
             continue;
         }
-        if (topk_a != topk_a2 || topk_b != topk_b2)
+        if (topk_a != topk_a2 || topk_a != topk_b || topk_a != topk_b2)
         {
             if (debug) fprintf(stderr, "[loftr_fuse] topk mismatch\n");
+            continue;
+        }
+        if (mconf_a != mconf_a2 || mconf_a != mconf_b || mconf_a != mconf_b2)
+        {
+            if (debug) fprintf(stderr, "[loftr_fuse] mconf mismatch\n");
+            continue;
+        }
+        if (bid_a0 != bid_a1 || bid_b0 != bid_b1 || bid_a0 == bid_b0)
+        {
+            if (debug) fprintf(stderr, "[loftr_fuse] batch id pattern mismatch\n");
             continue;
         }
 
@@ -198,44 +244,33 @@ void fuse_convert_loftrfinematchpostprocess(Graph& graph)
         {
             fprintf(stderr, "[loftr_fuse] matched output %s topk=%d\n", op->name.c_str(), topk_a);
         }
+        Operator* fused = graph.new_operator_before("LoFTRFineMatchPostprocess", "loftr_finematchpostprocess_" + std::to_string(fused_index++), op);
+        fused->params["0"] = topk_a;
+        fused->params["1"] = 0;
+        fused->inputnames = std::vector<std::string>{"mkpts0", "mkpts1", "mconf", "m_bids"};
+        fused->inputs = std::vector<Operand*>{mkpts0_a, mkpts1_a, mconf_a, m_bids_a};
+        mkpts0_a->consumers.push_back(fused);
+        mkpts1_a->consumers.push_back(fused);
+        mconf_a->consumers.push_back(fused);
+        m_bids_a->consumers.push_back(fused);
 
-        Operator* fused_a = graph.new_operator_before("LoFTRFineMatchPostprocess", "loftr_finematchpostprocess_" + std::to_string(fused_index++), op);
-        fused_a->params["0"] = topk_a;
-        fused_a->params["1"] = 0;
-        fused_a->inputnames = std::vector<std::string> {"mkpts0", "mkpts1", "mconf"};
-        fused_a->inputs = std::vector<Operand*> {mkpts0_a, mkpts1_a, mconf_a};
-        mkpts0_a->consumers.push_back(fused_a);
-        mkpts1_a->consumers.push_back(fused_a);
-        mconf_a->consumers.push_back(fused_a);
-
-        Operator* fused_b = graph.new_operator_before("LoFTRFineMatchPostprocess", "loftr_finematchpostprocess_" + std::to_string(fused_index++), op);
-        fused_b->params["0"] = topk_b;
-        fused_b->params["1"] = 0;
-        fused_b->inputnames = std::vector<std::string> {"mkpts0", "mkpts1", "mconf"};
-        fused_b->inputs = std::vector<Operand*> {mkpts0_a, mkpts1_a, mconf_b};
-        mkpts0_a->consumers.push_back(fused_b);
-        mkpts1_a->consumers.push_back(fused_b);
-        mconf_b->consumers.push_back(fused_b);
-
-        Operand* outs_a[3] = {stack0->inputs[0], stack1->inputs[0], stack2->inputs[0]};
-        Operand* outs_b[3] = {stack0->inputs[1], stack1->inputs[1], stack2->inputs[1]};
+        Operand* stack_outs[3] = {stack0->outputs.empty() ? 0 : stack0->outputs[0],
+                                  stack1->outputs.empty() ? 0 : stack1->outputs[0],
+                                  stack2->outputs.empty() ? 0 : stack2->outputs[0]};
+        if (!stack_outs[0] || !stack_outs[1] || !stack_outs[2])
+        {
+            if (debug) fprintf(stderr, "[loftr_fuse] stack output missing\n");
+            continue;
+        }
 
         for (int i = 0; i < 3; i++)
         {
-            Operand* out_a = outs_a[i];
-            Operand* out_b = outs_b[i];
-
-            Operator* old_producer_a = out_a->producer;
-            if (old_producer_a)
-                old_producer_a->outputs.erase(std::remove(old_producer_a->outputs.begin(), old_producer_a->outputs.end(), out_a), old_producer_a->outputs.end());
-            out_a->producer = fused_a;
-            fused_a->outputs.push_back(out_a);
-
-            Operator* old_producer_b = out_b->producer;
-            if (old_producer_b)
-                old_producer_b->outputs.erase(std::remove(old_producer_b->outputs.begin(), old_producer_b->outputs.end(), out_b), old_producer_b->outputs.end());
-            out_b->producer = fused_b;
-            fused_b->outputs.push_back(out_b);
+            Operand* out = stack_outs[i];
+            Operator* old_producer = out->producer;
+            if (old_producer)
+                old_producer->outputs.erase(std::remove(old_producer->outputs.begin(), old_producer->outputs.end(), out), old_producer->outputs.end());
+            out->producer = fused;
+            fused->outputs.push_back(out);
         }
     }
 
