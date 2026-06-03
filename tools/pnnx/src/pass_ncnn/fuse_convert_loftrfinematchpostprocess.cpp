@@ -202,8 +202,8 @@ void fuse_convert_loftrfinematchpostprocess(Graph& graph)
         Operator* fused_a = graph.new_operator_before("LoFTRFineMatchPostprocess", "loftr_finematchpostprocess_" + std::to_string(fused_index++), op);
         fused_a->params["0"] = topk_a;
         fused_a->params["1"] = 0;
-        fused_a->inputnames = std::vector<std::string>{"mkpts0", "mkpts1", "mconf"};
-        fused_a->inputs = std::vector<Operand*>{mkpts0_a, mkpts1_a, mconf_a};
+        fused_a->inputnames = std::vector<std::string> {"mkpts0", "mkpts1", "mconf"};
+        fused_a->inputs = std::vector<Operand*> {mkpts0_a, mkpts1_a, mconf_a};
         mkpts0_a->consumers.push_back(fused_a);
         mkpts1_a->consumers.push_back(fused_a);
         mconf_a->consumers.push_back(fused_a);
@@ -211,8 +211,8 @@ void fuse_convert_loftrfinematchpostprocess(Graph& graph)
         Operator* fused_b = graph.new_operator_before("LoFTRFineMatchPostprocess", "loftr_finematchpostprocess_" + std::to_string(fused_index++), op);
         fused_b->params["0"] = topk_b;
         fused_b->params["1"] = 0;
-        fused_b->inputnames = std::vector<std::string>{"mkpts0", "mkpts1", "mconf"};
-        fused_b->inputs = std::vector<Operand*>{mkpts0_a, mkpts1_a, mconf_b};
+        fused_b->inputnames = std::vector<std::string> {"mkpts0", "mkpts1", "mconf"};
+        fused_b->inputs = std::vector<Operand*> {mkpts0_a, mkpts1_a, mconf_b};
         mkpts0_a->consumers.push_back(fused_b);
         mkpts1_a->consumers.push_back(fused_b);
         mconf_b->consumers.push_back(fused_b);
