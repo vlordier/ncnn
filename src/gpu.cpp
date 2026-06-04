@@ -6145,12 +6145,37 @@ int compile_spirv_module(const char* comp_data, int comp_data_size, const Option
                 if (i != 0 && comp_data[i - 1] != '\n')
                     continue;
 
-                int nversion = 0;
-                sscanf(comp_data + i, "#version %*d\n%n", &nversion);
-                if (nversion == 0)
+                // comp_data is a bounded memory blob and may not be null-terminated,
+                // so parse #version line without libc scanf/strlen based routines.
+                int p = i + 8;
+                while (p < comp_data_size && (comp_data[p] == ' ' || comp_data[p] == '\t'))
+                    p++;
+
+                int ndigits = 0;
+                while (p < comp_data_size && comp_data[p] >= '0' && comp_data[p] <= '9')
+                {
+                    p++;
+                    ndigits++;
+                }
+
+                if (ndigits == 0)
                     continue;
 
-                version_end_pos = i + nversion;
+                // accept optional profile suffix (e.g. "core") and CRLF
+                while (p < comp_data_size && comp_data[p] != '\n' && comp_data[p] != '\r')
+                    p++;
+
+                if (p >= comp_data_size)
+                    continue;
+
+                if (comp_data[p] == '\r')
+                {
+                    p++;
+                    if (p >= comp_data_size || comp_data[p] != '\n')
+                        continue;
+                }
+
+                version_end_pos = p + 1;
                 break;
             }
 
