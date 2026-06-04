@@ -181,6 +181,9 @@ int Compare::forward(const std::vector<Mat>& bottom_blobs, std::vector<Mat>& top
         if (bottom_blobs.size() != 1)
             return -1;
 
+        if (bottom_blobs[0].empty())
+            return -1;
+
         top_blobs[0] = bottom_blobs[0].clone(opt.blob_allocator);
         if (top_blobs[0].empty())
             return -100;
@@ -193,6 +196,8 @@ int Compare::forward(const std::vector<Mat>& bottom_blobs, std::vector<Mat>& top
 
     const Mat& a = bottom_blobs[0];
     const Mat& b = bottom_blobs[1];
+    if (a.empty() || b.empty())
+        return -1;
     const int outdims = std::max(a.dims, b.dims);
 
     Mat a2 = a;
@@ -264,6 +269,15 @@ int Compare::forward(const std::vector<Mat>& bottom_blobs, std::vector<Mat>& top
     const int outh = std::max(a2.h, b2.h);
     const int outd = std::max(a2.d, b2.d);
     const int outc = std::max(a2.c, b2.c);
+
+    if (a2.w != b2.w && a2.w != 1 && b2.w != 1)
+        return -1;
+    if (a2.h != b2.h && a2.h != 1 && b2.h != 1)
+        return -1;
+    if (a2.d != b2.d && a2.d != 1 && b2.d != 1)
+        return -1;
+    if (a2.c != b2.c && a2.c != 1 && b2.c != 1)
+        return -1;
 
     if (outdims == 1)
         top_blobs[0].create(outw, (size_t)4u, opt.blob_allocator);

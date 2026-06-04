@@ -56,6 +56,7 @@ pnnx.Output             output      1 0 out
     void write(Operator* op, const std::map<std::string, Parameter>& captured_params) const
     {
         float b = 0.f;
+        if (captured_params.at("other").type == 1) b = captured_params.at("other").b ? 1.f : 0.f;
         if (captured_params.at("other").type == 2) b = (float)captured_params.at("other").i;
         if (captured_params.at("other").type == 3) b = captured_params.at("other").f;
 

@@ -22,7 +22,7 @@ pnnx.Output             output      1 0 out
 
     const char* type_str() const
     {
-        return "BinaryOp";
+        return "Fill";
     }
 
     bool match(const std::map<std::string, Parameter>& captured_params) const
@@ -37,11 +37,11 @@ pnnx.Output             output      1 0 out
 
     void write(Operator* op, const std::map<std::string, Parameter>& captured_params) const
     {
-        // Tensor.fill is only expected as value=None/0 in this LoFTR path.
-        // Lower to x * 0 to avoid introducing a dedicated runtime layer.
-        op->params["0"] = 2;
-        op->params["1"] = 1;
-        op->params["2"] = 0.f;
+        float value = 0.f;
+        if (captured_params.at("value").type == 2) value = (float)captured_params.at("value").i;
+        if (captured_params.at("value").type == 3) value = captured_params.at("value").f;
+
+        op->params["0"] = value;
     }
 };
 
@@ -62,14 +62,12 @@ pnnx.Output             output      1 0 out
 
     const char* type_str() const
     {
-        return "BinaryOp";
+        return "Fill";
     }
 
     void write(Operator* op, const std::map<std::string, Parameter>& /*captured_params*/) const
     {
-        op->params["0"] = 2;
-        op->params["1"] = 1;
-        op->params["2"] = 0.f;
+        op->params["0"] = 0.f;
     }
 };
 

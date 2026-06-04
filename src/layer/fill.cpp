@@ -19,11 +19,11 @@ int Fill::load_param(const ParamDict& pd)
     return 0;
 }
 
-int Fill::forward(const std::vector<Mat>& bottom_blobs, std::vector<Mat>& top_blobs, const Option& opt) const
+int Fill::forward(const Mat& bottom_blob, Mat& top_blob, const Option& opt) const
 {
-    const Mat& bottom_blob = bottom_blobs[0];
+    if (bottom_blob.empty())
+        return 0;
 
-    Mat& top_blob = top_blobs[0];
     top_blob.create_like(bottom_blob, opt.blob_allocator);
     if (top_blob.empty())
         return -100;
