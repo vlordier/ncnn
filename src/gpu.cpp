@@ -6161,8 +6161,19 @@ int compile_spirv_module(const char* comp_data, int comp_data_size, const Option
                 if (ndigits == 0)
                     continue;
 
-                if (p >= comp_data_size || comp_data[p] != '\n')
+                // accept optional profile suffix (e.g. "core") and CRLF
+                while (p < comp_data_size && comp_data[p] != '\n' && comp_data[p] != '\r')
+                    p++;
+
+                if (p >= comp_data_size)
                     continue;
+
+                if (comp_data[p] == '\r')
+                {
+                    p++;
+                    if (p >= comp_data_size || comp_data[p] != '\n')
+                        continue;
+                }
 
                 version_end_pos = p + 1;
                 break;
