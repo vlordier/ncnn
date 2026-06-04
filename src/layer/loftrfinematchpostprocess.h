@@ -1,6 +1,8 @@
 // Copyright 2026 Tencent
 // SPDX-License-Identifier: BSD-3-Clause
 
+#pragma once
+
 #ifndef LAYER_LOFTRFINEMATCHPOSTPROCESS_H
 #define LAYER_LOFTRFINEMATCHPOSTPROCESS_H
 
