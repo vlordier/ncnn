@@ -16,13 +16,13 @@ LoFTRFineMatchPostprocess::LoFTRFineMatchPostprocess()
     support_inplace = false;
 
     topk = 512;
-    bidirectional = 1;
+    expected_branches = 1;
 }
 
 int LoFTRFineMatchPostprocess::load_param(const ParamDict& pd)
 {
     topk = pd.get(0, 512);
-    bidirectional = pd.get(1, 1);
+    expected_branches = pd.get(1, 1);
 
     return 0;
 }
@@ -43,6 +43,9 @@ int LoFTRFineMatchPostprocess::forward(const std::vector<Mat>& bottom_blobs, std
 
     const bool has_m_bids = bottom_blobs.size() >= 4;
     const Mat* m_bids = has_m_bids ? &bottom_blobs[3] : 0;
+
+    if (mkpts0.elemsize != 4u || mkpts1.elemsize != 4u || mconf.elemsize != 4u)
+        return -1;
 
     bool m_bids_is_i64 = false;
     if (has_m_bids && m_bids->elemsize == 8u)
@@ -150,8 +153,8 @@ int LoFTRFineMatchPostprocess::forward(const std::vector<Mat>& bottom_blobs, std
                 return -1;
 
             // Optional param 1 carries expected branch count from fuse pass.
-            if (bidirectional > B)
-                B = bidirectional;
+            if (expected_branches > B)
+                B = expected_branches;
         }
         else
         {
