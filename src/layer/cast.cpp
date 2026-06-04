@@ -45,6 +45,12 @@ int Cast::forward(const Mat& bottom_blob, Mat& top_blob, const Option& opt) cons
         return 0;
     }
 
+    if (type_from == 0 && type_to == 1)
+    {
+        top_blob = bottom_blob;
+        return 0;
+    }
+
     int w = bottom_blob.w;
     int h = bottom_blob.h;
     int d = bottom_blob.d;

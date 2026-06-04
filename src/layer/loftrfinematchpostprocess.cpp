@@ -4,6 +4,8 @@
 #include "loftrfinematchpostprocess.h"
 
 #include <algorithm>
+#include <stdint.h>
+#include <math.h>
 #include <vector>
 
 namespace ncnn {
@@ -42,12 +44,60 @@ int LoFTRFineMatchPostprocess::forward(const std::vector<Mat>& bottom_blobs, std
     const bool has_m_bids = bottom_blobs.size() >= 4;
     const Mat* m_bids = has_m_bids ? &bottom_blobs[3] : 0;
 
+    bool m_bids_is_i64 = false;
+    if (has_m_bids && m_bids->elemsize == 8u)
+    {
+        // pnnx may materialize i64 constants as 8-byte float values on some paths.
+        // Detect representation from a few samples to avoid mis-decoding bids.
+        m_bids_is_i64 = true;
+        const int64_t* p_i64 = (const int64_t*)m_bids->data;
+        const int sample = std::min(m_bids->w, 16);
+        for (int i = 0; i < sample; i++)
+        {
+            int64_t v = p_i64[i];
+            if (v < -1024 || v > 1024)
+            {
+                m_bids_is_i64 = false;
+                break;
+            }
+        }
+    }
+
+    auto get_m_bid = [&](int i) -> int {
+        if (!m_bids)
+            return 0;
+
+        if (m_bids->elemsize == 8u)
+        {
+            if (m_bids_is_i64)
+            {
+                const int64_t* p = (const int64_t*)m_bids->data;
+                return (int)p[i];
+            }
+
+            const double* p = (const double*)m_bids->data;
+            const double bidf = p[i];
+            return (int)(bidf + (bidf >= 0. ? 0.5 : -0.5));
+        }
+
+        if (m_bids->elemsize == 4u)
+        {
+            const float* p = (const float*)m_bids->data;
+            const float bidf = p[i];
+            return (int)(bidf + (bidf >= 0.f ? 0.5f : -0.5f));
+        }
+
+        const float bidf = m_bids->operator[](i);
+        return (int)(bidf + (bidf >= 0.f ? 0.5f : -0.5f));
+    };
+
     const int K = topk > 0 ? topk : 1;
     const float neg_inf_half = -5e8f;
 
     int B = 1;
     int N = 0;
     bool prebatched = false;
+    int conf_count = 0;
 
     if (mkpts0.dims == 3)
     {
@@ -73,7 +123,11 @@ int LoFTRFineMatchPostprocess::forward(const std::vector<Mat>& bottom_blobs, std
         prebatched = false;
         N = mkpts0.h;
 
-        if (mconf.dims != 1 || mconf.w != N)
+        if (mconf.dims == 1)
+            conf_count = mconf.w;
+        else if (mconf.dims == 2)
+            conf_count = mconf.w * mconf.h;
+        else
             return -1;
 
         if (has_m_bids)
@@ -84,7 +138,7 @@ int LoFTRFineMatchPostprocess::forward(const std::vector<Mat>& bottom_blobs, std
             B = 0;
             for (int i = 0; i < N; i++)
             {
-                int bid = (int)(m_bids->operator[](i) + (m_bids->operator[](i) >= 0.f ? 0.5f : -0.5f));
+                int bid = get_m_bid(i);
                 if (bid < 0)
                     continue;
                 if (bid + 1 > B)
@@ -92,6 +146,12 @@ int LoFTRFineMatchPostprocess::forward(const std::vector<Mat>& bottom_blobs, std
             }
             if (B < 1)
                 B = 1;
+            if (B > 4096)
+                return -1;
+
+            // Optional param 1 carries expected branch count from fuse pass.
+            if (bidirectional > B)
+                B = bidirectional;
         }
         else
         {
@@ -124,8 +184,7 @@ int LoFTRFineMatchPostprocess::forward(const std::vector<Mat>& bottom_blobs, std
             int bid = 0;
             if (!prebatched && has_m_bids)
             {
-                float bidf = m_bids->operator[](i);
-                bid = (int)(bidf + (bidf >= 0.f ? 0.5f : -0.5f));
+                bid = get_m_bid(i);
             }
             else if (prebatched)
             {
@@ -149,6 +208,9 @@ int LoFTRFineMatchPostprocess::forward(const std::vector<Mat>& bottom_blobs, std
             }
             else
             {
+                if (i >= conf_count)
+                    continue;
+
                 conf = mconf[i];
             }
 
@@ -156,13 +218,21 @@ int LoFTRFineMatchPostprocess::forward(const std::vector<Mat>& bottom_blobs, std
                 candidates.push_back(std::make_pair(conf, i));
         }
 
-        std::sort(candidates.begin(), candidates.end(), [](const std::pair<float, int>& a, const std::pair<float, int>& b) {
+        const int keep = std::min((int)candidates.size(), K);
+        auto candidate_cmp = [](const std::pair<float, int>& a, const std::pair<float, int>& b) {
             if (a.first != b.first)
                 return a.first > b.first;
             return a.second < b.second;
-        });
+        };
 
-        const int keep = std::min((int)candidates.size(), K);
+        if ((int)candidates.size() > keep)
+        {
+            std::nth_element(candidates.begin(), candidates.begin() + keep, candidates.end(), candidate_cmp);
+            candidates.resize(keep);
+        }
+
+        std::sort(candidates.begin(), candidates.end(), candidate_cmp);
+
         float* outc_row = outc.row(b);
         Mat out0_ch = out0.channel(b);
         Mat out1_ch = out1.channel(b);
@@ -171,6 +241,9 @@ int LoFTRFineMatchPostprocess::forward(const std::vector<Mat>& bottom_blobs, std
         {
             const int idx = candidates[k].second;
             const float conf = candidates[k].first;
+
+            if (idx < 0 || idx >= N)
+                continue;
 
             const float* p0 = prebatched ? mkpts0.channel(b).row(idx) : mkpts0.row(idx);
             const float* p1 = prebatched ? mkpts1.channel(b).row(idx) : mkpts1.row(idx);
