@@ -14,13 +14,13 @@ LoFTRFineMatchPostprocess::LoFTRFineMatchPostprocess()
     support_inplace = false;
 
     topk = 512;
-    bidirectional = 1;
+    expected_branches = 1;
 }
 
 int LoFTRFineMatchPostprocess::load_param(const ParamDict& pd)
 {
     topk = pd.get(0, 512);
-    bidirectional = pd.get(1, 1);
+    expected_branches = pd.get(1, 1);
 
     return 0;
 }

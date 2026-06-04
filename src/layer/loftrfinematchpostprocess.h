@@ -20,7 +20,7 @@ public:
 public:
     // Placeholder parameters for the upcoming fused implementation.
     int topk;
-    int bidirectional;
+    int expected_branches;
 };
 
 } // namespace ncnn
