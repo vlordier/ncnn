@@ -24,6 +24,7 @@
 #include "pass_ncnn/expand_expression.h"
 #include "pass_ncnn/fuse_convert_shufflechannel_slice.h"
 #include "pass_ncnn/fuse_convert_rotaryembed.h"
+#include "pass_ncnn/fuse_convert_loftrfinematchpostprocess.h"
 #include "pass_ncnn/insert_split.h"
 #include "pass_ncnn/chain_multi_output.h"
 #include "pass_ncnn/solve_batch_index.h"
@@ -51,6 +52,8 @@
 #include "pass_level5/attribute_unpooling.h"
 #include "pass_level5/eliminate_maxpool_indices.h"
 #include "pass_level5/unroll_rnn_op.h"
+
+#include <cstdlib>
 
 namespace pnnx {
 
@@ -85,6 +88,11 @@ void pass_ncnn(Graph& g, const std::vector<std::string>& module_operators)
     ncnn::expand_expression(g);
 
     ncnn::chain_multi_output(g);
+
+    if (std::getenv("PNNX_ENABLE_LOFTR_FUSE") != 0)
+    {
+        ncnn::fuse_convert_loftrfinematchpostprocess(g);
+    }
 
     ncnn::solve_batch_index(g);
 
