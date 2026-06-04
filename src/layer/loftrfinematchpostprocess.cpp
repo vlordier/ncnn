@@ -4,6 +4,7 @@
 #include "loftrfinematchpostprocess.h"
 
 #include <algorithm>
+#include <stdint.h>
 #include <vector>
 
 namespace ncnn {
@@ -41,6 +42,27 @@ int LoFTRFineMatchPostprocess::forward(const std::vector<Mat>& bottom_blobs, std
 
     const bool has_m_bids = bottom_blobs.size() >= 4;
     const Mat* m_bids = has_m_bids ? &bottom_blobs[3] : 0;
+
+    auto get_m_bid = [&](int i) -> int {
+        if (!m_bids)
+            return 0;
+
+        if (m_bids->elemsize == 8u)
+        {
+            const int64_t* p = (const int64_t*)m_bids->data;
+            return (int)p[i];
+        }
+
+        if (m_bids->elemsize == 4u)
+        {
+            const float* p = (const float*)m_bids->data;
+            const float bidf = p[i];
+            return (int)(bidf + (bidf >= 0.f ? 0.5f : -0.5f));
+        }
+
+        const float bidf = m_bids->operator[](i);
+        return (int)(bidf + (bidf >= 0.f ? 0.5f : -0.5f));
+    };
 
     const int K = topk > 0 ? topk : 1;
     const float neg_inf_half = -5e8f;
@@ -84,7 +106,7 @@ int LoFTRFineMatchPostprocess::forward(const std::vector<Mat>& bottom_blobs, std
             B = 0;
             for (int i = 0; i < N; i++)
             {
-                int bid = (int)(m_bids->operator[](i) + (m_bids->operator[](i) >= 0.f ? 0.5f : -0.5f));
+                int bid = get_m_bid(i);
                 if (bid < 0)
                     continue;
                 if (bid + 1 > B)
@@ -124,8 +146,7 @@ int LoFTRFineMatchPostprocess::forward(const std::vector<Mat>& bottom_blobs, std
             int bid = 0;
             if (!prebatched && has_m_bids)
             {
-                float bidf = m_bids->operator[](i);
-                bid = (int)(bidf + (bidf >= 0.f ? 0.5f : -0.5f));
+                bid = get_m_bid(i);
             }
             else if (prebatched)
             {
