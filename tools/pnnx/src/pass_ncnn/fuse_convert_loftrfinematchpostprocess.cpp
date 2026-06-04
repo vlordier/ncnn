@@ -247,8 +247,8 @@ void fuse_convert_loftrfinematchpostprocess(Graph& graph)
         Operator* fused = graph.new_operator_before("LoFTRFineMatchPostprocess", "loftr_finematchpostprocess_" + std::to_string(fused_index++), op);
         fused->params["0"] = topk_a;
         fused->params["1"] = 0;
-        fused->inputnames = std::vector<std::string>{"mkpts0", "mkpts1", "mconf", "m_bids"};
-        fused->inputs = std::vector<Operand*>{mkpts0_a, mkpts1_a, mconf_a, m_bids_a};
+        fused->inputnames = std::vector<std::string> {"mkpts0", "mkpts1", "mconf", "m_bids"};
+        fused->inputs = std::vector<Operand*> {mkpts0_a, mkpts1_a, mconf_a, m_bids_a};
         mkpts0_a->consumers.push_back(fused);
         mkpts1_a->consumers.push_back(fused);
         mconf_a->consumers.push_back(fused);
@@ -256,7 +256,8 @@ void fuse_convert_loftrfinematchpostprocess(Graph& graph)
 
         Operand* stack_outs[3] = {stack0->outputs.empty() ? 0 : stack0->outputs[0],
                                   stack1->outputs.empty() ? 0 : stack1->outputs[0],
-                                  stack2->outputs.empty() ? 0 : stack2->outputs[0]};
+                                  stack2->outputs.empty() ? 0 : stack2->outputs[0]
+                                 };
         if (!stack_outs[0] || !stack_outs[1] || !stack_outs[2])
         {
             if (debug) fprintf(stderr, "[loftr_fuse] stack output missing\n");
