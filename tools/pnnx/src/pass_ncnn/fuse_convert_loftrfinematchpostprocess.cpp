@@ -246,9 +246,10 @@ void fuse_convert_loftrfinematchpostprocess(Graph& graph)
         }
         Operator* fused = graph.new_operator_before("LoFTRFineMatchPostprocess", "loftr_finematchpostprocess_" + std::to_string(fused_index++), op);
         fused->params["0"] = topk_a;
-        fused->params["1"] = 0;
-        fused->inputnames = std::vector<std::string>{"mkpts0", "mkpts1", "mconf", "m_bids"};
-        fused->inputs = std::vector<Operand*>{mkpts0_a, mkpts1_a, mconf_a, m_bids_a};
+        const int expected_batch = std::max(bid_a0, bid_b0) + 1;
+        fused->params["1"] = expected_batch;
+        fused->inputnames = std::vector<std::string> {"mkpts0", "mkpts1", "mconf", "m_bids"};
+        fused->inputs = std::vector<Operand*> {mkpts0_a, mkpts1_a, mconf_a, m_bids_a};
         mkpts0_a->consumers.push_back(fused);
         mkpts1_a->consumers.push_back(fused);
         mconf_a->consumers.push_back(fused);
@@ -256,7 +257,8 @@ void fuse_convert_loftrfinematchpostprocess(Graph& graph)
 
         Operand* stack_outs[3] = {stack0->outputs.empty() ? 0 : stack0->outputs[0],
                                   stack1->outputs.empty() ? 0 : stack1->outputs[0],
-                                  stack2->outputs.empty() ? 0 : stack2->outputs[0]};
+                                  stack2->outputs.empty() ? 0 : stack2->outputs[0]
+                                 };
         if (!stack_outs[0] || !stack_outs[1] || !stack_outs[2])
         {
             if (debug) fprintf(stderr, "[loftr_fuse] stack output missing\n");
@@ -269,9 +271,21 @@ void fuse_convert_loftrfinematchpostprocess(Graph& graph)
             Operator* old_producer = out->producer;
             if (old_producer)
                 old_producer->outputs.erase(std::remove(old_producer->outputs.begin(), old_producer->outputs.end(), out), old_producer->outputs.end());
+
+            // Keep compatibility with downstream ncnn reshape fixup that expects
+            // the pre-reshape blob name emitted by original torch.stack lowering.
+            const std::string pre_reshape_name = (i == 0 ? stack0->name : (i == 1 ? stack1->name : stack2->name)) + "_ncnnreshape_in";
+            out->name = pre_reshape_name;
+
             out->producer = fused;
             fused->outputs.push_back(out);
         }
+
+        // Mark original stack ops as already-lowered so convert_torch_stack
+        // will not inject reshape placeholders for now-disconnected branches.
+        stack0->type = "Concat";
+        stack1->type = "Concat";
+        stack2->type = "Concat";
     }
 
     if (debug)

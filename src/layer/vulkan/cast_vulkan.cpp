@@ -21,6 +21,11 @@ int Cast_vulkan::create_pipeline(const Option& opt)
     const Mat& shape = bottom_shapes.empty() ? Mat() : bottom_shapes[0];
     const Mat& out_shape = top_shapes.empty() ? Mat() : top_shapes[0];
 
+    if (type_from == 0 && type_to == 1)
+    {
+        return 0;
+    }
+
     std::vector<vk_specialization_type> specializations(0 + 10);
     specializations[0 + 0].i = shape.dims;
     specializations[0 + 1].i = shape.w;
@@ -121,6 +126,12 @@ int Cast_vulkan::forward(const VkMat& bottom_blob, VkMat& top_blob, VkCompute& c
         return 0;
     }
 
+    if (type_from == 0 && type_to == 1)
+    {
+        top_blob = bottom_blob;
+        return 0;
+    }
+
     int w = bottom_blob.w;
     int h = bottom_blob.h;
     int d = bottom_blob.d;
@@ -188,6 +199,12 @@ int Cast_vulkan::forward(const VkMat& bottom_blob, VkMat& top_blob, VkCompute& c
     constants[9].i = top_blob.cstep;
 
     const Pipeline* pipeline = elempack == 4 ? pipeline_cast_pack4 : pipeline_cast;
+
+    if (!pipeline)
+    {
+        NCNN_LOGE("Cast_vulkan no pipeline for elempack=%d type_from=%d type_to=%d", elempack, type_from, type_to);
+        return -1;
+    }
 
     cmd.record_pipeline(pipeline, bindings, constants, top_blob);
 
