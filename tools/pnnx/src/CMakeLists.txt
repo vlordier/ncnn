@@ -589,6 +589,7 @@ set(pnnx_pass_ncnn_SRCS
     pass_ncnn/nn_UpsamplingNearest2d.cpp
     pass_ncnn/nn_ZeroPad2d.cpp
     pass_ncnn/Tensor_expand.cpp
+    pass_ncnn/Tensor_fill.cpp
     pass_ncnn/Tensor_permute.cpp
     pass_ncnn/Tensor_reshape.cpp
     pass_ncnn/Tensor_reshape_as.cpp
@@ -607,9 +608,11 @@ set(pnnx_pass_ncnn_SRCS
     pass_ncnn/torch_clone.cpp
     pass_ncnn/torch_cumsum.cpp
     pass_ncnn/torch_diag.cpp
+    pass_ncnn/torch_eq.cpp
     pass_ncnn/torch_flatten.cpp
     pass_ncnn/torch_flip.cpp
     pass_ncnn/torch_gather.cpp
+    pass_ncnn/torch_gt.cpp
     pass_ncnn/torch_istft.cpp
     pass_ncnn/torch_logsumexp.cpp
     pass_ncnn/torch_matmul.cpp
